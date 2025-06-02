@@ -1,42 +1,42 @@
 import re
-# Набор строковых констант. string.punctuation - все знаки пунктуации
-import string
-from nltk.tokenize import word_tokenize as PUNCT_WORD_TOKENIZER  # Токенизатор, разбивает текст на слова
-from pymorphy3 import MorphAnalyzer  # Библиотека для морфологического анализа русского языка
+from nltk.tokenize import word_tokenize 
+from pymorphy3 import MorphAnalyzer 
 from stop_words import get_stop_words  
-from collections import Counter
+from sklearn.feature_extraction.text import CountVectorizer
 
 RUSSIAN_STOP_WORDS = set(get_stop_words('ru')) 
+morph = MorphAnalyzer()
 
 def preprocess_text(text):
-    text = re.sub(r'@\w+\b', '', text)
-    text = re.sub(r'[0-9]+', '', text.lower())
-    text = ''.join([ch if ch not in string.punctuation else ' ' for ch in text])
+    if not isinstance(text, str):
+        text = ""
+
+    text = re.sub(r'@\w+\b', ' ', text)
+    text = re.sub(r'\d+', ' ', text)
     text = re.sub(r'[^а-яё\s]', ' ', text, flags=re.IGNORECASE)
-    
-    tokens = PUNCT_WORD_TOKENIZER(text)
+    text = re.sub(r'\s+', ' ', text).strip()
 
-    norm_tokens = [
-        MorphAnalyzer().parse(token)[0].normal_form
-        for token in tokens
-        if token not in RUSSIAN_STOP_WORDS and len(token)>0
+    tokens = word_tokenize(text, language='russian')
+    lemmas = [
+        morph.parse(t)[0].normal_form for t in tokens
+        if t not in RUSSIAN_STOP_WORDS and len(t) >= 2
     ]
-    return ' '.join(norm_tokens)
 
-def build_vocab(texts, word_freq=3):
-    vocab = {'<pad>': 0, '<unk>': 1}
-    idx = 2
-    all_tokens = []
+    return ' '.join(lemmas)
 
-    for text in texts:
-        tokens = PUNCT_WORD_TOKENIZER(preprocess_text(text))
-        all_tokens.extend(tokens)
-
-    freq = Counter(all_tokens)
-
-    for token, count in freq.items():
-        if count >=word_freq:
-            vocab[token] = idx
-            idx += 1
-
+def build_vocab(texts, min_df=1):
+    vectorizer = CountVectorizer(
+        min_df=min_df,
+        tokenizer=lambda x: x.split(),
+        token_pattern=None
+    )
+    vectorizer.fit(texts)
+    vocab = {word: idx+2 for idx, word in enumerate(vectorizer.get_feature_names_out())}
+    vocab['<pad>'] = 0
+    vocab['<unk>'] = 1
     return vocab
+
+if __name__ == '__main__':
+    import pandas as pd
+    df = pd.read_csv('dataset/train.csv')['text'][:100]
+    print(build_vocab(df))
